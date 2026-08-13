@@ -54,6 +54,8 @@ Client question: {question}
 
 Answer:"""
 
+INSUFFICIENT_INFORMATION = "I don't have enough information to answer that."
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # TODO 1: Implement ask_question
@@ -80,8 +82,29 @@ def ask_question(vector_store, llm, question: str) -> dict:
             "answer"  -> str: the generated answer
             "sources" -> list[str]: the chunk texts that were retrieved
     """
-    # TODO: implement this (~6-8 lines)
-    raise NotImplementedError("TODO 1: Implement ask_question")
+    if not isinstance(question, str) or not question.strip():
+        raise ValueError("Question cannot be empty.")
+
+    question = question.strip()
+    documents = vector_store.similarity_search(question, k=3)
+    sources = [document.page_content for document in documents]
+
+    if not sources:
+        return {"answer": INSUFFICIENT_INFORMATION, "sources": []}
+
+    context = "\n\n".join(sources)
+    prompt = PROMPT_TEMPLATE.format(context=context, question=question)
+    result = llm(prompt)
+
+    try:
+        answer = result[0]["generated_text"].strip()
+    except (IndexError, KeyError, TypeError, AttributeError) as error:
+        raise RuntimeError("The language model returned an invalid response.") from error
+
+    return {
+        "answer": answer or INSUFFICIENT_INFORMATION,
+        "sources": sources,
+    }
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -100,10 +123,35 @@ def main():
          - Calls ask_question() with their input
          - Prints the retrieved sources and the answer
     """
-    data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
+    data_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
+    vector_store = build_knowledge_base(data_dir)
+    llm = get_llm()
 
-    # TODO: implement this (~10-12 lines)
-    raise NotImplementedError("TODO 2: Complete the interactive loop")
+    print("Ask a question about our services, pricing, or process (type 'quit' to exit).")
+    while True:
+        try:
+            question = input("\n> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nGoodbye!")
+            break
+
+        if question.lower() == "quit":
+            print("Goodbye!")
+            break
+        if not question:
+            print("Please enter a question, or type 'quit' to exit.")
+            continue
+
+        try:
+            result = ask_question(vector_store, llm, question)
+        except Exception as error:
+            print(f"Unable to answer that question: {error}")
+            continue
+
+        print("\n📄 Sources:")
+        for index, source in enumerate(result["sources"], start=1):
+            print(f"  {index}. {source}")
+        print(f"\n💬 Answer: {result['answer']}")
 
 
 if __name__ == "__main__":
